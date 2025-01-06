@@ -1,12 +1,17 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { MapPin, Truck, Package, Search } from "lucide-react";
+import { Scatter } from "react-chartjs-2";
+import { Chart as ChartJS, registerables } from "chart.js";
 
+ChartJS.register(...registerables);
+
+// Initial data arrays remain unchanged
 const initialDeliveryPersons = [
   {
     id: "D1",
     name: "John",
     location: { x: 10, y: 20 },
-    currentLoad: 3,
+    currentLoad: 1,
     maxLoad: 5,
   },
   {
@@ -29,6 +34,34 @@ const initialDeliveryPersons = [
     location: { x: -5, y: 25 },
     currentLoad: 9,
     maxLoad: 10,
+  },
+  {
+    id: "D5",
+    name: "Alex",
+    location: { x: 15, y: 35 },
+    currentLoad: 4,
+    maxLoad: 7,
+  },
+  {
+    id: "D6",
+    name: "Lisa",
+    location: { x: -15, y: 10 },
+    currentLoad: 2,
+    maxLoad: 6,
+  },
+  {
+    id: "D7",
+    name: "Ryan",
+    location: { x: 8, y: -5 },
+    currentLoad: 5,
+    maxLoad: 9,
+  },
+  {
+    id: "D8",
+    name: "Jessica",
+    location: { x: -20, y: 40 },
+    currentLoad: 3,
+    maxLoad: 8,
   },
 ];
 
@@ -71,6 +104,77 @@ const initialOrders = [
   },
 ];
 
+const DeliveryCard = ({ title, icon: Icon, children, className = "" }) => (
+  <div className={`bg-white p-6 rounded-lg shadow-lg ${className}`}>
+    <h2 className="font-semibold mb-4 text-xl text-gray-700 flex items-center">
+      <Icon className="mr-2" /> {title}
+    </h2>
+    {children}
+  </div>
+);
+
+const DeliveryPersonCard = ({ person }) => (
+  <div className="mb-4 p-4 bg-gray-50 rounded-lg shadow-sm hover:bg-gray-100 transition-all">
+    <div className="flex justify-between items-center">
+      <div>
+        <div className="font-medium text-gray-700">{person.name}</div>
+        <div className="text-sm text-gray-500">ID: {person.id}</div>
+      </div>
+      <div className="text-right">
+        <div className="text-sm font-medium text-gray-600">
+          Load: {person.currentLoad}/{person.maxLoad}
+        </div>
+        <div className="text-xs text-gray-400">
+          ({person.location.x}, {person.location.y})
+        </div>
+      </div>
+    </div>
+    <div className="mt-2 bg-gray-200 rounded-full h-2">
+      <div
+        className="bg-blue-500 rounded-full h-2 transition-all"
+        style={{ width: `${(person.currentLoad / person.maxLoad) * 100}%` }}
+      />
+    </div>
+  </div>
+);
+
+const OrderCard = ({ order, isAssigned = false }) => (
+  <div
+    className={`mb-4 p-4 ${
+      isAssigned ? "bg-green-50" : "bg-gray-50"
+    } rounded-lg shadow-sm hover:bg-opacity-80 transition-all`}
+  >
+    <div className="flex justify-between items-start">
+      <div>
+        <div className="font-medium text-gray-700">Order {order.id}</div>
+        <div className="text-sm text-gray-500">Customer: {order.customer}</div>
+      </div>
+      <div className="text-right">
+        {isAssigned ? (
+          <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
+            Assigned to: {order.assignedTo}
+          </span>
+        ) : (
+          <span
+            className={`text-xs px-2 py-1 rounded-full ${
+              order.priority === 3
+                ? "bg-red-100 text-red-800"
+                : order.priority === 2
+                ? "bg-yellow-100 text-yellow-800"
+                : "bg-blue-100 text-blue-800"
+            }`}
+          >
+            Priority {order.priority}
+          </span>
+        )}
+      </div>
+    </div>
+    <div className="text-xs text-gray-400 mt-2">
+      Destination: ({order.destination.x}, {order.destination.y})
+    </div>
+  </div>
+);
+
 const DeliveryOptimizationApp = () => {
   const [deliveryPersons, setDeliveryPersons] = useState(
     initialDeliveryPersons
@@ -110,19 +214,23 @@ const DeliveryOptimizationApp = () => {
       return currentDistance < bestDistance ? current : best;
     });
 
+    setDeliveryPersons(
+      deliveryPersons.map((person) =>
+        person.id === bestPerson.id
+          ? {
+              ...person,
+              location: order.destination,
+              currentLoad: person.currentLoad + 1,
+            }
+          : person
+      )
+    );
+
     setOrders(orders.filter((o) => o.id !== order.id));
     setAssignedOrders([
       ...assignedOrders,
       { ...order, assignedTo: bestPerson.id },
     ]);
-
-    setDeliveryPersons(
-      deliveryPersons.map((person) =>
-        person.id === bestPerson.id
-          ? { ...person, currentLoad: person.currentLoad + 1 }
-          : person
-      )
-    );
   };
 
   const filterOrders = (ordersList, query) => {
@@ -144,126 +252,223 @@ const DeliveryOptimizationApp = () => {
       ? filteredAssignedOrders
       : [...filteredPendingOrders, ...filteredAssignedOrders];
 
+  const getChartData = () => {
+    const deliveryData = deliveryPersons.map((person) => ({
+      x: person.location.x,
+      y: person.location.y,
+      label: person.name,
+    }));
+
+    const orderData = orders.map((order) => ({
+      x: order.destination.x,
+      y: order.destination.y,
+      label: order.id,
+      isHighlighted: order.id.toLowerCase().includes(searchQuery.toLowerCase()),
+    }));
+
+    return {
+      datasets: [
+        {
+          label: "Delivery Persons",
+          data: deliveryData,
+          backgroundColor: "rgba(75, 192, 192, 1)",
+          pointRadius: 6,
+          pointHoverRadius: 8,
+        },
+        {
+          label: "Orders",
+          data: orderData,
+          backgroundColor: orderData.map((order) =>
+            order.isHighlighted
+              ? "rgba(255, 0, 0, 1)"
+              : "rgba(255, 99, 132, 0.5)"
+          ),
+          pointRadius: 6,
+          pointHoverRadius: 8,
+        },
+      ],
+    };
+  };
+
   return (
-    <div className="p-4 bg-gray-100 min-h-screen">
-      <h1 className="text-3xl font-bold mb-6 text-center text-gray-800">
-        Delivery Optimization System
-      </h1>
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <h1 className="text-4xl font-bold mb-8 text-center text-gray-800">
+          Delivery Optimization System
+        </h1>
 
-      {/* Search Section */}
-      <div className="mb-6 bg-white p-6 rounded-lg shadow-lg">
-        <div className="flex items-center gap-4">
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              placeholder="Search by Order ID or Customer Name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full p-3 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            />
-            <Search
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-              size={20}
-            />
+        {/* Search Section */}
+        <div className="bg-white p-6 rounded-lg shadow-lg mb-8">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                placeholder="Search by Order ID or Customer Name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              />
+              <Search
+                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                size={20}
+              />
+            </div>
+            <select
+              value={searchType}
+              onChange={(e) => setSearchType(e.target.value)}
+              className="p-3 border border-gray-300 rounded-lg bg-white text-gray-700 font-medium 
+                hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 
+                transition-all cursor-pointer appearance-none"
+            >
+              <option value="all" className="py-2">
+                All Orders
+              </option>
+              <option value="pending" className="py-2">
+                Pending Orders
+              </option>
+              <option value="assigned" className="py-2">
+                Assigned Orders
+              </option>
+            </select>
           </div>
-          <select
-            value={searchType}
-            onChange={(e) => setSearchType(e.target.value)}
-            className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+          <div className="text-sm text-gray-500 mt-4 text-center">
+            Found {displayOrders.length} matching orders
+          </div>
+        </div>
+
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          {/* Chart Section */}
+          <DeliveryCard
+            title="Location Map"
+            icon={MapPin}
+            className="lg:col-span-2"
           >
-            <option value="all">All Orders</option>
-            <option value="pending">Pending Orders</option>
-            <option value="assigned">Assigned Orders</option>
-          </select>
-        </div>
-        <div className="text-sm text-gray-500 mt-4 flex items-center justify-center">
-          Found {displayOrders.length} matching orders
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Delivery Persons */}
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h2 className="font-semibold mb-4 text-xl text-gray-700 flex items-center">
-            <Truck className="mr-2" /> Delivery Persons
-          </h2>
-          {deliveryPersons.map((person) => (
-            <div
-              key={person.id}
-              className="mb-4 p-4 bg-gray-50 rounded-lg shadow-sm"
-            >
-              <div className="flex justify-between text-gray-700">
-                <span className="font-medium">
-                  {person.name} - {person.id}
-                </span>
-                <span className="text-sm text-gray-500">
-                  Load: {person.currentLoad}/{person.maxLoad}
-                </span>
-              </div>
-              <div className="text-sm text-gray-400 mt-1">
-                Location: ({person.location.x}, {person.location.y})
-              </div>
+            <div className="bg-white p-4 rounded-lg">
+              <Scatter
+                data={getChartData()}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  scales: {
+                    x: {
+                      type: "linear",
+                      position: "bottom",
+                      grid: { color: "rgba(0,0,0,0.1)" },
+                    },
+                    y: {
+                      beginAtZero: true,
+                      grid: { color: "rgba(0,0,0,0.1)" },
+                    },
+                  },
+                  plugins: {
+                    tooltip: {
+                      callbacks: {
+                        label: (context) => {
+                          const { dataset, dataIndex } = context;
+                          const label =
+                            dataset.label === "Delivery Persons"
+                              ? deliveryPersons[dataIndex].name
+                              : `Order ${orders[dataIndex].id}`;
+                          return `${label} (${context.parsed.x}, ${context.parsed.y})`;
+                        },
+                      },
+                    },
+                    legend: {
+                      position: "top",
+                    },
+                  },
+                }}
+                height={350}
+              />
             </div>
-          ))}
-        </div>
+          </DeliveryCard>
 
-        {/* Pending Orders */}
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h2 className="font-semibold mb-4 text-xl text-gray-700 flex items-center">
-            <Package className="mr-2" /> Pending Orders
-          </h2>
-          {filteredPendingOrders.map((order) => (
-            <div
-              key={order.id}
-              className="mb-4 p-4 bg-gray-50 rounded-lg shadow-sm"
-            >
-              <div className="flex justify-between text-gray-700">
-                <span className="font-medium">Order {order.id}</span>
-                <span className="text-sm text-gray-500">
-                  Priority: {order.priority}
-                </span>
-              </div>
-              <div className="text-sm text-gray-400 mt-1">
-                Customer: {order.customer}
-              </div>
-              <div className="text-sm text-gray-400">
-                Destination: ({order.destination.x}, {order.destination.y})
-              </div>
-            </div>
-          ))}
-          <button
-            onClick={assignOrder}
-            className="w-full mt-4 bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600 transition-all"
-            disabled={orders.length === 0}
-          >
-            Assign Next Order
-          </button>
-        </div>
+          {/* Delivery Persons Section */}
+          <div className="bg-white p-6 rounded-lg shadow-lg">
+            <h2 className="font-semibold mb-4 text-xl text-gray-700 flex items-center">
+              <Truck className="mr-2" /> Delivery Persons
+            </h2>
+            <div className="space-y-4">
+              {deliveryPersons.map((person) => {
+                // 計算工作負載比例
+                const loadRatio = person.currentLoad / person.maxLoad;
+                // 根據工作負載比例設置進度條顏色
+                let progressColor;
+                if (loadRatio < 0.5) {
+                  progressColor = "bg-green-500"; // 輕載
+                } else if (loadRatio < 1) {
+                  progressColor = "bg-yellow-500"; // 中載
+                } else {
+                  progressColor = "bg-red-500"; // 超載
+                }
 
-        {/* Assigned Orders */}
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h2 className="font-semibold mb-4 text-xl text-gray-700 flex items-center">
-            <MapPin className="mr-2" /> Assigned Orders
-          </h2>
-          {filteredAssignedOrders.map((order) => (
-            <div
-              key={order.id}
-              className="mb-4 p-4 bg-green-50 rounded-lg shadow-sm"
-            >
-              <div className="flex justify-between text-gray-700">
-                <span className="font-medium">Order {order.id}</span>
-                <span className="text-sm text-gray-500">
-                  Assigned to: {order.assignedTo}
-                </span>
-              </div>
-              <div className="text-sm text-gray-400 mt-1">
-                Customer: {order.customer}
-              </div>
-              <div className="text-sm text-gray-400">
-                Destination: ({order.destination.x}, {order.destination.y})
-              </div>
+                return (
+                  <div
+                    key={person.id}
+                    className="mb-4 p-4 bg-gray-50 rounded-lg shadow-sm hover:bg-gray-100 transition-all"
+                  >
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <div className="font-medium text-gray-700">
+                          {person.name}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          ID: {person.id}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-medium text-gray-600">
+                          Load: {person.currentLoad}/{person.maxLoad}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          ({person.location.x}, {person.location.y})
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-2 bg-gray-200 rounded-full h-2">
+                      <div
+                        className={`${progressColor} rounded-full h-2 transition-all`}
+                        style={{
+                          width: `${
+                            (person.currentLoad / person.maxLoad) * 100
+                          }%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          ))}
+          </div>
+
+          {/* Orders Section */}
+          <div className="space-y-8">
+            {/* Pending Orders */}
+            <DeliveryCard title="Pending Orders" icon={Package}>
+              <div className="space-y-4">
+                {filteredPendingOrders.map((order) => (
+                  <OrderCard key={order.id} order={order} />
+                ))}
+              </div>
+              <button
+                onClick={assignOrder}
+                className="w-full mt-6 bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={orders.length === 0}
+              >
+                Assign Next Order
+              </button>
+            </DeliveryCard>
+
+            {/* Assigned Orders */}
+            <DeliveryCard title="Assigned Orders" icon={MapPin}>
+              <div className="space-y-4">
+                {filteredAssignedOrders.map((order) => (
+                  <OrderCard key={order.id} order={order} isAssigned />
+                ))}
+              </div>
+            </DeliveryCard>
+          </div>
         </div>
       </div>
     </div>
