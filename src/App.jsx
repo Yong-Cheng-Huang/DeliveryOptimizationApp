@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { MapPin, Truck, Package, Search } from "lucide-react";
 import { Scatter } from "react-chartjs-2";
 import { Chart as ChartJS, registerables } from "chart.js";
@@ -174,6 +174,143 @@ const OrderCard = ({ order, isAssigned = false }) => (
     </div>
   </div>
 );
+
+// 動態規劃函數 - 計算最佳配送路徑
+const calculateOptimalRoute = (deliveryPerson, orders) => {
+  // 如果沒有訂單,直接返回空路徑
+  if (orders.length === 0) return { route: [], totalDistance: 0 };
+
+  const n = orders.length;
+  // dp[mask][last] 表示訪問過的訂單集合為mask且最後訪問訂單為last的最短距離
+  const dp = Array(1 << n)
+    .fill()
+    .map(() => Array(n).fill(Infinity));
+  // prev[mask][last] 用於重建路徑
+  const prev = Array(1 << n)
+    .fill()
+    .map(() => Array(n).fill(-1));
+
+  // 初始化: 從配送員位置到第一個訂單的距離
+  for (let i = 0; i < n; i++) {
+    dp[1 << i][i] = calculateDistance(
+      deliveryPerson.location,
+      orders[i].destination
+    );
+  }
+
+  // 對所有可能的訂單子集進行動態規劃
+  for (let mask = 0; mask < 1 << n; mask++) {
+    for (let last = 0; last < n; last++) {
+      if ((mask & (1 << last)) === 0) continue; // 跳過未訪問的訂單
+
+      // 嘗試新增下一個訂單
+      for (let next = 0; next < n; next++) {
+        if ((mask & (1 << next)) !== 0) continue; // 跳過已訪問的訂單
+
+        const newMask = mask | (1 << next);
+        const distance =
+          dp[mask][last] +
+          calculateDistance(orders[last].destination, orders[next].destination);
+
+        if (distance < dp[newMask][next]) {
+          dp[newMask][next] = distance;
+          prev[newMask][next] = last;
+        }
+      }
+    }
+  }
+
+  // 找出最佳終點
+  let finalMask = (1 << n) - 1;
+  let lastStop = 0;
+  let minDistance = Infinity;
+
+  for (let i = 0; i < n; i++) {
+    if (dp[finalMask][i] < minDistance) {
+      minDistance = dp[finalMask][i];
+      lastStop = i;
+    }
+  }
+
+  // 重建最佳路徑
+  const route = [];
+  let currentMask = finalMask;
+  let current = lastStop;
+
+  while (current !== -1) {
+    route.unshift(orders[current]);
+    const newMask = currentMask ^ (1 << current);
+    current = prev[currentMask][current];
+    currentMask = newMask;
+  }
+
+  return { route, totalDistance: minDistance };
+};
+
+// 貪婪算法 - 分配訂單給配送員
+const assignOrdersGreedy = (deliveryPersons, orders) => {
+  const assignments = new Map();
+  const sortedOrders = [...orders].sort((a, b) => b.priority - a.priority);
+
+  for (const order of sortedOrders) {
+    let bestPerson = null;
+    let minScore = Infinity;
+
+    for (const person of deliveryPersons) {
+      if (person.currentLoad >= person.maxLoad) continue;
+
+      // 計算分配分數 (考慮距離、負載率和優先級)
+      const distance = calculateDistance(person.location, order.destination);
+      const loadRatio = person.currentLoad / person.maxLoad;
+      const score = (distance * (1 + loadRatio)) / order.priority;
+
+      if (score < minScore) {
+        minScore = score;
+        bestPerson = person;
+      }
+    }
+
+    if (bestPerson) {
+      if (!assignments.has(bestPerson.id)) {
+        assignments.set(bestPerson.id, []);
+      }
+      assignments.get(bestPerson.id).push(order);
+    }
+  }
+
+  return assignments;
+};
+
+// 最佳化配送路徑的 Hook
+const useOptimizedDelivery = () => {
+  const [assignments, setAssignments] = useState(new Map());
+
+  const optimizeDelivery = useCallback((deliveryPersons, orders) => {
+    // 1. 使用貪婪算法進行初始分配
+    const initialAssignments = assignOrdersGreedy(deliveryPersons, orders);
+
+    // 2. 對每個配送員使用動態規劃優化路徑
+    const optimizedAssignments = new Map();
+
+    for (const [personId, personOrders] of initialAssignments) {
+      const person = deliveryPersons.find((p) => p.id === personId);
+      const { route } = calculateOptimalRoute(person, personOrders);
+      optimizedAssignments.set(personId, route);
+    }
+
+    setAssignments(optimizedAssignments);
+    return optimizedAssignments;
+  }, []);
+
+  return { assignments, optimizeDelivery };
+};
+
+// 工具函數 - 計算兩點間距離
+const calculateDistance = (point1, point2) => {
+  return Math.sqrt(
+    Math.pow(point1.x - point2.x, 2) + Math.pow(point1.y - point2.y, 2)
+  );
+};
 
 const DeliveryOptimizationApp = () => {
   const [deliveryPersons, setDeliveryPersons] = useState(
